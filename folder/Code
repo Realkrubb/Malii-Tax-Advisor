@@ -1,0 +1,121 @@
+// Presented by BrilliantPy v.1.0.1
+/*######################### Editable1 Start #########################*/
+let sheetName = "ชีต1";
+let ss_id = "1zGaeLyBhbBb-Ij6RsXVbaEbsjd79AV3e0YD-ImS6Qto";
+let CHANNEL_ACCESS_TOKEN = "FGnXT0dXFJr3hiNBq69MCR/r9Rhg6uE5fXxMwnI+5U5a1dD6XimCYjHTKhw4REm91rrpBPaGPI/Pff+Ab6jCzuS57rhDKjY4q824OsrEZjFrAxDWvgBY+LrPAhnrO4TVdC6Z50K7XPa1rr6skT+zHgdB04t89/1O/w1cDnyilFU="; // เพิ่ม Channel Access Token ของคุณที่นี่
+let GEMINI_API_KEY = "AIzaSyDR-C5WcwOAg1aN6Dbj4j5siGSS_pBERdA"; // เพิ่ม Gemini API Key ของคุณที่นี่
+/*#########################  Editable1 End  #########################*/
+// Init
+let ss, sheet, lastRow, lastCol, range, values;
+Logger = BetterLog.useSpreadsheet(ss_id);
+
+function doPost(e) {
+  initSpreadSheet();
+  try {
+    let req_content = e.postData.contents;
+    Logger.log("req_content:" + req_content);
+
+    let event_0 = JSON.parse(req_content).events[0];
+    let user_msg = event_0.message.text;
+    Logger.log("user_msg:" + user_msg);
+
+    let token = event_0.replyToken;
+    let replyText = "";
+
+    for (let i = 0; i < values.length; i++) {
+      let key = values[i][0];
+      let value = values[i][1];
+      if (key == user_msg) {
+        replyText = value;
+        break;
+      }
+    }
+
+    if (event_0.message.type === "text") {
+      if (replyText) {
+        replyMessage(token, replyText);
+      } else {
+        // หากไม่พบคำตอบใน Google Sheets ให้ใช้ Gemini API
+        getGeminiResponse(user_msg, token);
+      }
+    }
+  } catch (e) {
+    Logger.log("doPost error:" + e);
+  }
+}
+
+function initSpreadSheet() {
+  ss = SpreadsheetApp.openById(ss_id);
+  sheet = ss.getSheetByName(sheetName);
+  lastRow = sheet.getLastRow();
+  lastCol = sheet.getLastColumn();
+  range = sheet.getDataRange();
+  values = range.getValues();
+  Logger.log('initSpreadSheet completed');
+}
+
+async function replyMessage(token, replyText) {
+  let url = "https://api.line.me/v2/bot/message/reply";
+  let lineHeader = {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer " + CHANNEL_ACCESS_TOKEN
+  };
+
+  let postData = {
+    "replyToken": token,
+    "messages": [{
+      "type": "text",
+      "text": replyText
+    }]
+  };
+  // let postData = {
+  //  "replyToken" : token,
+  //  "messages" : [flex_obj]
+  // };
+
+  let options = {
+    "method": "POST",
+    "headers": lineHeader,
+    "payload": JSON.stringify(postData)
+  };
+
+  try {
+    let response = await UrlFetchApp.fetch(url, options);
+    Logger.log("response:" + response);
+  }
+
+  catch (error) {
+    Logger.log(error.name + "：" + error.message);
+    return;
+  }
+
+  if (response.getResponseCode() === 200) {
+    Logger.log("Sending message completed.");
+  }
+}
+
+async function getGeminiResponse(question, token) {
+  const prompt = "คุณตอบคำถามที่เกี่ยวกับภาษี การลดหย่อนภาษี และการเงินก็พอ ถ้าเจอคำถามนอกจากการเงินและภาษี ให้ตอบว่า 'ฉันไม่สามารถตอบคำถามนอกจากเรื่องภาษีได้ค่ะ' ";
+  const prompt1 = "ตอบโดยใช้คำหางเสียงเป็นคะ/ค่ะ คุณชื่อมะลิ (Malii)";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const payload = { contents: [{ parts: [{ text: prompt + question + "?" + prompt1 }] }] };
+  try {
+    const res = await UrlFetchApp.fetch(url, {
+      payload: JSON.stringify(payload),
+      contentType: "application/json",
+    });
+    const obj = JSON.parse(res.getContentText());
+    if ( obj.candidates && obj.candidates.length > 0 && obj.candidates[0].content.parts.length > 0) {
+      let geminiReplyText = obj.candidates[0].content.parts[0].text;
+
+      geminiReplyText = geminiReplyText.replace(/\*/g, ' ').trim();
+      
+      replyMessage(token, geminiReplyText);
+    } else {
+      replyMessage(token, "ไม่พบคำตอบจาก Gemini API");
+    }
+  } catch (error) {
+    Logger.log("Gemini API error:" + error);
+    replyMessage(token, "เกิดข้อผิดพลาดในการเรียกใช้ Gemini API");
+  }
+}
